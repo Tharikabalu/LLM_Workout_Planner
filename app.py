@@ -16,14 +16,74 @@ load_dotenv(override=True)
 st.set_page_config(page_title="Workout Planner (MVP)", page_icon="🏋️", layout="wide")
 
 
-def get_api_key() -> str | None:
-	# Sidebar API key input falls back to env var
-	st.sidebar.subheader("API Key")
-	api_key_env = os.getenv("OPENAI_API_KEY")
-	api_key_input = st.sidebar.text_input("OPENAI_API_KEY", value=api_key_env or "", type="password")
-	if api_key_input:
-		os.environ["OPENAI_API_KEY"] = api_key_input
-	return os.getenv("OPENAI_API_KEY")
+def get_current_user() -> str:
+	"""Get current user identity - simplified for demo purposes"""
+	# In a real app, this would come from authentication system
+	# For now, we'll use a simple session state approach
+	if 'current_user' not in st.session_state:
+		st.session_state.current_user = None
+	
+	# User selection interface
+	st.sidebar.subheader("👤 User Identity")
+	user_options = ["Select User", "tharika", "Other User"]
+	selected_user = st.sidebar.selectbox("Who are you?", user_options, key="user_selector")
+	
+	if selected_user != "Select User":
+		st.session_state.current_user = selected_user
+		st.sidebar.success(f"Logged in as: {selected_user}")
+	
+	return st.session_state.current_user
+
+
+def get_api_keys() -> tuple[str | None, str | None]:
+	# Sidebar API key inputs fall back to env vars
+	st.sidebar.subheader("🤖 AI Provider Configuration")
+	
+	current_user = get_current_user()
+	
+	# Provider selection
+	provider = st.sidebar.selectbox(
+		"Choose AI Provider", 
+		["openai", "google"], 
+		index=0 if os.getenv("LLM_PROVIDER", "openai") == "openai" else 1
+	)
+	os.environ["LLM_PROVIDER"] = provider
+	
+	openai_key = None
+	google_key = None
+	
+	# Check if user is tharika - they get automatic access to Google API key
+	is_tharika = current_user == "tharika"
+	
+	if provider == "openai":
+		st.sidebar.subheader("OpenAI API Key")
+		openai_key_env = os.getenv("OPENAI_API_KEY")
+		openai_key_input = st.sidebar.text_input("OPENAI_API_KEY", value=openai_key_env or "", type="password")
+		if openai_key_input:
+			os.environ["OPENAI_API_KEY"] = openai_key_input
+			openai_key = openai_key_input
+		else:
+			openai_key = openai_key_env
+	else:
+		st.sidebar.subheader("Google API Key")
+		
+		if is_tharika:
+			# Tharika gets automatic access to the Google API key
+			google_key = "AIzaSyC5YeyH0pByYysF1bjG77vzeMua9rGJ3zc"
+			os.environ["GOOGLE_API_KEY"] = google_key
+			st.sidebar.success("🔑 Using Tharika's Google API key")
+		else:
+			# Other users need to provide their own API key
+			st.sidebar.warning("⚠️ Please provide your own Google API key")
+			google_key_env = os.getenv("GOOGLE_API_KEY")
+			google_key_input = st.sidebar.text_input("GOOGLE_API_KEY", value=google_key_env or "", type="password")
+			if google_key_input:
+				os.environ["GOOGLE_API_KEY"] = google_key_input
+				google_key = google_key_input
+			else:
+				google_key = google_key_env
+	
+	return openai_key, google_key
 
 
 def render_log_form(store: JsonWorkoutStore) -> None:
@@ -90,9 +150,32 @@ def render_planner(store: JsonWorkoutStore) -> None:
 
 def main() -> None:
 	st.title("🏋️ Workout Planner")
-	api_key = get_api_key()
-	if not api_key:
-		st.warning("Please provide OPENAI_API_KEY in the sidebar or your environment.")
+	
+	# Get current user first
+	current_user = get_current_user()
+	
+	# Show user-specific welcome message
+	if current_user:
+		if current_user == "tharika":
+			st.success(f"Welcome back, {current_user}! You have access to the Google API key. 🎉")
+		else:
+			st.info(f"Welcome, {current_user}! Please provide your own API key to use the AI features.")
+	else:
+		st.info("👋 Please select your user identity in the sidebar to get started.")
+	
+	openai_key, google_key = get_api_keys()
+	provider = os.getenv("LLM_PROVIDER", "openai")
+	
+	if current_user:
+		if provider == "openai" and not openai_key:
+			st.warning("Please provide OPENAI_API_KEY in the sidebar or your environment.")
+		elif provider == "google" and not google_key:
+			if current_user != "tharika":
+				st.warning("Please provide your own GOOGLE_API_KEY in the sidebar.")
+			else:
+				st.error("There was an issue with the Google API key configuration.")
+	else:
+		st.warning("Please select your user identity in the sidebar to continue.")
 
 	store = JsonWorkoutStore()
 	with st.container():
@@ -102,7 +185,22 @@ def main() -> None:
 	logs = render_history(store)
 
 	st.divider()
-	render_planner(store)
+	
+	# Only show planner if user has proper API access
+	api_configured = False
+	if current_user and provider == "openai" and openai_key:
+		api_configured = True
+	elif current_user and provider == "google" and google_key:
+		api_configured = True
+	
+	if api_configured:
+		render_planner(store)
+	else:
+		st.subheader("Generate next plan")
+		if current_user:
+			st.warning("⚠️ Please configure your API key to use the AI workout planner.")
+		else:
+			st.info("👋 Please select your user identity and configure your API key to use the AI workout planner.")
 
 
 if __name__ == "__main__":
