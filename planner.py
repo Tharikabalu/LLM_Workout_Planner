@@ -2,11 +2,16 @@ import os
 from typing import Any, Dict, List
 
 from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 
-def _get_model_name() -> str:
-	return os.getenv("MODEL_NAME", "gpt-4o-mini")
+def _get_openai_model_name() -> str:
+	return os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+
+
+def _get_google_model_name() -> str:
+	return os.getenv("GOOGLE_MODEL_NAME", "gemini-pro")
 
 
 def _get_temperature() -> float:
@@ -16,9 +21,22 @@ def _get_temperature() -> float:
 		return 0.4
 
 
+def _get_llm_provider() -> str:
+	return os.getenv("LLM_PROVIDER", "openai").lower()
+
+
 def generate_next_plan(recent_logs: List[Dict[str, Any]], goal: str, constraints: str | None = None) -> str:
 	"""Generate a next-session workout plan using recent logs and a user goal."""
-	model = ChatOpenAI(model=_get_model_name(), temperature=_get_temperature())
+	provider = _get_llm_provider()
+	
+	if provider == "google":
+		model = ChatGoogleGenerativeAI(
+			model=_get_google_model_name(),
+			temperature=_get_temperature(),
+			google_api_key=os.getenv("GOOGLE_API_KEY")
+		)
+	else:
+		model = ChatOpenAI(model=_get_openai_model_name(), temperature=_get_temperature())
 
 	prompt = ChatPromptTemplate.from_messages([
 		("system", (
